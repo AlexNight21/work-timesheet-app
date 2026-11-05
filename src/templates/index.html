@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Табель учёта рабочего времени</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+    <header class="app-header">
+        <div class="app-header__inner">
+            <h1>Табель учёта рабочего времени</h1>
+            <p>Заполните исходные данные, внесите ежедневные работы и скачайте готовый Excel-отчёт.</p>
+        </div>
+    </header>
+
+    <main class="layout">
+        <section class="card" id="setup-section">
+            <div class="card__head">
+                <h2><span class="step">1</span>Исходные данные</h2>
+            </div>
+
+            <div class="hint hint--info" id="first-run-hint" hidden>
+                Файлы с данными ещё не созданы. Добавьте компании, сотрудников, подразделения,
+                менеджеров и проекты — значения сохранятся в txt-файлы и будут доступны при
+                следующем открытии страницы.
+            </div>
+
+            <div class="form-grid">
+                <div class="field">
+                    <span class="field__label">Компания</span>
+                    <div class="field__control">
+                        <select id="company"></select>
+                        <button type="button" class="icon-button add-dictionary"
+                                data-kind="companies" title="Добавить компанию">+</button>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <span class="field__label">Сотрудник</span>
+                    <div class="field__control">
+                        <select id="employee"></select>
+                        <button type="button" class="icon-button add-dictionary"
+                                data-kind="employees" title="Добавить сотрудника">+</button>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <span class="field__label">Подразделение</span>
+                    <div class="field__control">
+                        <select id="department"></select>
+                        <button type="button" class="icon-button add-dictionary"
+                                data-kind="departments" title="Добавить подразделение">+</button>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <span class="field__label">Менеджер проекта</span>
+                    <div class="field__control">
+                        <select id="manager"></select>
+                        <button type="button" class="icon-button add-dictionary"
+                                data-kind="managers" title="Добавить менеджера">+</button>
+                    </div>
+                </div>
+
+                <label class="field">
+                    <span class="field__label">Дата заполнения</span>
+                    <input type="date" id="fill-date">
+                </label>
+
+                <div class="field field--period">
+                    <span class="field__label">Период отчёта</span>
+                    <div class="period-control">
+                        <input type="date" id="period-start" aria-label="Начало периода">
+                        <span class="period-control__dash">—</span>
+                        <input type="date" id="period-end" aria-label="Окончание периода">
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="card" id="daily-section">
+            <div class="card__head card__head--split">
+                <h2><span class="step">2</span>Ежедневные работы</h2>
+                <button type="button" class="button button--ghost" id="add-project-button">
+                    + Добавить проект
+                </button>
+            </div>
+
+            <div class="hint" id="days-empty">
+                Выберите период отчёта — ниже появятся рабочие дни, сгруппированные по неделям.
+            </div>
+
+            <div id="weeks" class="weeks"></div>
+        </section>
+
+        <section class="card" id="report-section">
+            <div class="card__head">
+                <h2><span class="step">3</span>Excel-отчёт</h2>
+            </div>
+
+            <p class="muted">
+                Отчёт формируется по шаблону: лист с табелем по неделям и лист со справочником
+                проектов и датами недель.
+            </p>
+
+            <div class="report-actions">
+                <button type="button" class="button button--primary" id="generate-button">
+                    Сгенерировать отчёт
+                </button>
+                <a class="button button--success" id="download-button" hidden download>
+                    Скачать отчёт
+                </a>
+            </div>
+
+            <div class="report-summary" id="report-summary" hidden></div>
+            <div class="alert alert--error" id="error-box" hidden></div>
+        </section>
+    </main>
+
+    <dialog class="dialog" id="dictionary-dialog">
+        <form class="dialog__form" id="dictionary-form">
+            <h3 id="dictionary-dialog-title">Добавить значение</h3>
+            <p class="muted" id="dictionary-dialog-description"></p>
+            <label class="field">
+                <span class="field__label">Наименование</span>
+                <input type="text" id="dictionary-input" maxlength="300" autocomplete="off" required>
+            </label>
+            <div class="alert alert--error" id="dictionary-error" hidden></div>
+            <div class="dialog__actions">
+                <button type="button" class="button button--ghost" id="dictionary-cancel">
+                    Отмена
+                </button>
+                <button type="submit" class="button button--primary" id="dictionary-save">
+                    Сохранить
+                </button>
+            </div>
+        </form>
+    </dialog>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

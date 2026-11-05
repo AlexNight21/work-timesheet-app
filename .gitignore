@@ -4,6 +4,10 @@
 # data
 data/template/*
 !data/template/.gitkeep
+data/storage/*
+!data/storage/.gitkeep
+data/reports/*
+!data/reports/.gitkeep
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
