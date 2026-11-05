@@ -1,0 +1,118 @@
+"""Модели запросов и ответов API."""
+
+from __future__ import annotations
+
+from datetime import date, time
+
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from app.services.period import iter_workdays
+
+
+class DictionariesResponse(BaseModel):
+    companies: list[str] = Field(default_factory=list)
+    employees: list[str] = Field(default_factory=list)
+    departments: list[str] = Field(default_factory=list)
+    managers: list[str] = Field(default_factory=list)
+    projects: list[str] = Field(default_factory=list)
+
+
+class DictionaryCreateRequest(BaseModel):
+    value: str = Field(min_length=1, max_length=300)
+
+    @field_validator("value")
+    @classmethod
+    def normalize_value(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Значение не может быть пустым")
+        return value
+
+
+class DictionaryCreateResponse(BaseModel):
+    kind: str
+    value: str
+
+
+class DayEntry(BaseModel):
+    date: date
+    start_time: time
+    end_time: time
+    lunch_time: time
+    project: str = Field(min_length=1, max_length=300)
+    details: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("project")
+    @classmethod
+    def normalize_project(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Проект не может быть пустым")
+        return value
+
+    @field_validator("details")
+    @classmethod
+    def normalize_details(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
+
+    @model_validator(mode="after")
+    def validate_time_range(self) -> "DayEntry":
+        start = self.start_time.hour * 60 + self.start_time.minute
+        end = self.end_time.hour * 60 + self.end_time.minute
+        lunch = self.lunch_time.hour * 60 + self.lunch_time.minute
+
+        if end <= start:
+            raise ValueError("Время окончания должно быть позже времени начала")
+        if lunch >= end - start:
+            raise ValueError("Время обеда должно быть меньше рабочего интервала")
+        return self
+
+    @property
+    def worked_minutes(self) -> int:
+        start = self.start_time.hour * 60 + self.start_time.minute
+        end = self.end_time.hour * 60 + self.end_time.minute
+        lunch = self.lunch_time.hour * 60 + self.lunch_time.minute
+        return end - start - lunch
+
+
+class ReportRequest(BaseModel):
+    company: str = Field(min_length=1, max_length=300)
+    employee: str = Field(min_length=1, max_length=300)
+    department: str = Field(min_length=1, max_length=300)
+    manager: str = Field(min_length=1, max_length=300)
+    fill_date: date
+    period_start: date
+    period_end: date
+    entries: list[DayEntry] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_period(self) -> "ReportRequest":
+        if self.period_start > self.period_end:
+            raise ValueError("Начало периода не может быть позже окончания")
+
+        workdays = set(iter_workdays(self.period_start, self.period_end))
+        if not workdays:
+            raise ValueError("В выбранном периоде нет рабочих дней")
+
+        entry_dates = {entry.date for entry in self.entries}
+        if len(entry_dates) != len(self.entries):
+            raise ValueError("Даты в ежедневных записях не должны повторяться")
+
+        missing = sorted(workdays - entry_dates)
+        if missing:
+            dates = ", ".join(day.strftime("%d.%m.%Y") for day in missing)
+            raise ValueError(f"Не заполнены рабочие дни: {dates}")
+
+        extra = sorted(entry_dates - workdays)
+        if extra:
+            dates = ", ".join(day.strftime("%d.%m.%Y") for day in extra)
+            raise ValueError(f"Указаны дни вне периода или выходные: {dates}")
+
+        return self
+
+    @property
+    def total_minutes(self) -> int:
+        return sum(entry.worked_minutes for entry in self.entries)
