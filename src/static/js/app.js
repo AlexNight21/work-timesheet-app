@@ -39,6 +39,8 @@ const elements = {
     fillDate: document.getElementById("fill-date"),
     periodStart: document.getElementById("period-start"),
     periodEnd: document.getElementById("period-end"),
+    defaultStart: document.getElementById("default-start"),
+    defaultEnd: document.getElementById("default-end"),
     weeks: document.getElementById("weeks"),
     daysEmpty: document.getElementById("days-empty"),
     firstRunHint: document.getElementById("first-run-hint"),
@@ -163,8 +165,10 @@ function renderTopSelect(kind) {
         select.append(new Option(value, value));
     }
 
-    if ([...select.options].some((option) => option.value === current)) {
+    if (current && [...select.options].some((option) => option.value === current)) {
         select.value = current;
+    } else if (select.options.length > 1) {
+        select.value = select.options[1].value;
     }
 }
 
@@ -382,11 +386,11 @@ function createDayRow(day) {
 
     const startSelect = createElement("select", "start-select");
     startSelect.title = "Время начала работ";
-    fillTimeSelect(startSelect, saved.start, "09:00");
+    fillTimeSelect(startSelect, saved.start, elements.defaultStart.value);
 
     const endSelect = createElement("select", "end-select");
     endSelect.title = "Время окончания работ";
-    fillTimeSelect(endSelect, saved.end, "18:00");
+    fillTimeSelect(endSelect, saved.end, elements.defaultEnd.value);
 
     const lunchSelect = createElement("select", "lunch-select");
     lunchSelect.title = "Время обеда";
@@ -619,6 +623,12 @@ function setDefaultDates() {
     }
 }
 
+function updateAllDayTimes(selector, value) {
+    document.querySelectorAll(`.day-row[data-date] ${selector}`).forEach((select) => {
+        select.value = value;
+    });
+}
+
 function bindEvents() {
     document.querySelectorAll(".add-dictionary").forEach((button) => {
         button.addEventListener("click", () => {
@@ -648,6 +658,14 @@ function bindEvents() {
         renderDays();
     });
 
+    elements.defaultStart.addEventListener("change", () => {
+        updateAllDayTimes(".start-select", elements.defaultStart.value);
+    });
+
+    elements.defaultEnd.addEventListener("change", () => {
+        updateAllDayTimes(".end-select", elements.defaultEnd.value);
+    });
+
     elements.generateButton.addEventListener("click", generateReport);
 
     dialog.form.addEventListener("submit", (event) => {
@@ -665,6 +683,8 @@ function bindEvents() {
 async function init() {
     bindEvents();
     setDefaultDates();
+    fillTimeSelect(elements.defaultStart, "08:00", "08:00");
+    fillTimeSelect(elements.defaultEnd, "17:00", "17:00");
     try {
         await loadDictionaries();
     } catch (error) {

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import textwrap
 import warnings
 from copy import copy
 from dataclasses import dataclass
@@ -10,6 +11,7 @@ from pathlib import Path
 from typing import Sequence
 
 from openpyxl import load_workbook
+from openpyxl.styles import Border, Side
 from openpyxl.styles.cell_style import StyleArray
 from openpyxl.worksheet.worksheet import Worksheet
 
@@ -87,8 +89,15 @@ class TimesheetReportGenerator:
         entries = {entry.date: entry for entry in request.entries}
 
         templates = self._capture_timesheet_templates(timesheet)
+        grid_side = copy(timesheet.cell(DATA_ROW, 2).border.left)
         self._clear_timesheet_blocks(timesheet)
-        total_minutes = self._write_weeks(timesheet, weeks, entries, templates)
+        total_minutes = self._write_weeks(
+            timesheet,
+            weeks,
+            entries,
+            templates,
+            grid_side,
+        )
 
         self._fill_reference_sheet(
             reference,
@@ -149,6 +158,7 @@ class TimesheetReportGenerator:
         weeks: list[WeekPeriod],
         entries: dict[date, DayEntry],
         templates: dict[str, RowTemplate],
+        grid_side: Side,
     ) -> int:
         # Недельные блоки начинаются с 9-й строки, перед ними остаётся пустая строка 8.
         header_row = WEEK_HEADER_ROW
@@ -164,6 +174,7 @@ class TimesheetReportGenerator:
                 entries,
                 templates,
                 header_row,
+                grid_side,
             )
             total_minutes += sum(
                 entries[day].worked_minutes for day in week.days
@@ -179,6 +190,7 @@ class TimesheetReportGenerator:
         entries: dict[date, DayEntry],
         templates: dict[str, RowTemplate],
         header_row: int,
+        grid_side: Side,
     ) -> int:
         self._apply_row(ws, header_row, templates["week_header"])
         ws.merge_cells(
@@ -194,6 +206,11 @@ class TimesheetReportGenerator:
         blank_row = header_row + 1
         self._apply_row(ws, blank_row, templates["week_blank"])
 
+        # F8:F10 / F18:F20 в шаблоне: разделительные линии цветом
+        # основных границ таблицы, чтобы три ячейки были визуально различимы.
+        for border_row in (header_row - 1, header_row, blank_row):
+            self._set_thin_box(ws.cell(border_row, 6), grid_side)
+
         table_header_row = header_row + 2
         self._apply_row(ws, table_header_row, templates["table_header"])
         for column, title in enumerate(TABLE_HEADERS, start=2):
@@ -206,10 +223,16 @@ class TimesheetReportGenerator:
             self._apply_row(ws, row, templates["data"])
             ws.cell(row, 2, f"=WEEKDAY(C{row})")
             ws.cell(row, 3, datetime.combine(day, time.min))
+            if offset > 0:
+                self._set_top_border_thin(ws.cell(row, 3))
+            if offset < len(week.days) - 1:
+                self._set_bottom_border_thin(ws.cell(row, 3))
             ws.cell(row, 4, entry.start_time)
             ws.cell(row, 5, entry.end_time)
             ws.cell(row, 6, entry.lunch_time)
-            ws.cell(row, 7, self._project_text(entry))
+            project_text = self._project_text(entry)
+            ws.cell(row, 7, project_text)
+            self._fit_project_row_height(ws, row, project_text)
             ws.cell(row, 8, f"=E{row}-D{row}-F{row}")
 
         buffer_row = first_data_row + len(week.days)
@@ -311,6 +334,56 @@ class TimesheetReportGenerator:
         else:
             word = "часов"
         return f"<-{hours} {word}"
+
+    @staticmethod
+    def _fit_project_row_height(
+        ws: Worksheet,
+        row: int,
+        text: str,
+    ) -> None:
+        """Увеличивает высоту строки, чтобы текст в колонке G был виден полностью."""
+        column_width = ws.column_dimensions["G"].width or 61.55
+        chars_per_line = max(10, int(column_width) - 2)
+        lines = 0
+        for paragraph in text.splitlines() or [""]:
+            wrapped = textwrap.wrap(paragraph, width=chars_per_line)
+            lines += max(1, len(wrapped))
+
+        if lines <= 1:
+            return
+
+        base_height = ws.row_dimensions[row].height or 15.6
+        ws.row_dimensions[row].height = base_height * lines
+
+    @staticmethod
+    def _set_top_border_thin(cell) -> None:
+        border = cell.border
+        cell.border = Border(
+            left=border.left,
+            right=border.right,
+            top=Side(style="thin", color=border.top.color),
+            bottom=border.bottom,
+        )
+
+    @staticmethod
+    def _set_bottom_border_thin(cell) -> None:
+        border = cell.border
+        cell.border = Border(
+            left=border.left,
+            right=border.right,
+            top=border.top,
+            bottom=Side(style="thin", color=border.bottom.color),
+        )
+
+    @staticmethod
+    def _set_thin_box(cell, source_side: Side) -> None:
+        thin_side = Side(style="thin", color=copy(source_side.color))
+        cell.border = Border(
+            left=copy(thin_side),
+            right=copy(thin_side),
+            top=copy(thin_side),
+            bottom=copy(thin_side),
+        )
 
     @staticmethod
     def _snapshot_row(
