@@ -92,11 +92,8 @@
         </section>
 
         <section class="card" id="daily-section">
-            <div class="card__head card__head--split">
+            <div class="card__head">
                 <h2><span class="step">2</span>Ежедневные работы</h2>
-                <button type="button" class="button button--ghost" id="add-project-button">
-                    + Добавить проект
-                </button>
             </div>
 
             <div class="hint" id="days-empty">
@@ -144,6 +141,26 @@
                     Отмена
                 </button>
                 <button type="submit" class="button button--primary" id="dictionary-save">
+                    Сохранить
+                </button>
+            </div>
+        </form>
+    </dialog>
+
+    <dialog class="dialog dialog--projects" id="projects-dialog">
+        <form class="dialog__form" id="projects-form">
+            <h3 id="projects-dialog-title">Проекты и проведенные работы</h3>
+            <p class="muted" id="projects-dialog-subtitle"></p>
+            <div class="project-entries" id="project-entries"></div>
+            <button type="button" class="button button--ghost" id="add-project-entry">
+                + Добавить еще проект
+            </button>
+            <div class="alert alert--error" id="projects-error" hidden></div>
+            <div class="dialog__actions">
+                <button type="button" class="button button--ghost" id="projects-cancel">
+                    Отмена
+                </button>
+                <button type="submit" class="button button--primary" id="projects-save">
                     Сохранить
                 </button>
             </div>

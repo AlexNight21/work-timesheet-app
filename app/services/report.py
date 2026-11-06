@@ -316,17 +316,23 @@ class TimesheetReportGenerator:
         projects: list[str] = []
         seen: set[str] = set()
         for entry in request.entries:
-            if entry.project.casefold() in seen:
-                continue
-            seen.add(entry.project.casefold())
-            projects.append(entry.project)
+            for day_project in entry.projects:
+                folded = day_project.project.casefold()
+                if folded in seen:
+                    continue
+                seen.add(folded)
+                projects.append(day_project.project)
         return projects
 
     @staticmethod
     def _project_text(entry: DayEntry) -> str:
-        if entry.details:
-            return f"{entry.project}{PROJECT_SEPARATOR}{entry.details}"
-        return entry.project
+        parts: list[str] = []
+        for index, day_project in enumerate(entry.projects, start=1):
+            text = f"{index}. {day_project.project}"
+            if day_project.details:
+                text += f"{PROJECT_SEPARATOR}{day_project.details}"
+            parts.append(text)
+        return "; ".join(parts)
 
     @staticmethod
     def _hours_label(minutes: int) -> str:
@@ -360,7 +366,7 @@ class TimesheetReportGenerator:
             return
 
         base_height = ws.row_dimensions[row].height or 15.6
-        ws.row_dimensions[row].height = base_height * lines
+        ws.row_dimensions[row].height = min(base_height * lines, 409.5)
 
     @staticmethod
     def _set_top_border_thin(cell) -> None:

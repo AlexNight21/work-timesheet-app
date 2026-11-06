@@ -34,11 +34,7 @@ class DictionaryCreateResponse(BaseModel):
     value: str
 
 
-class DayEntry(BaseModel):
-    date: date
-    start_time: time
-    end_time: time
-    lunch_time: time
+class DayProject(BaseModel):
     project: str = Field(min_length=1, max_length=300)
     details: str | None = Field(default=None, max_length=2000)
 
@@ -57,6 +53,14 @@ class DayEntry(BaseModel):
             return None
         value = value.strip()
         return value or None
+
+
+class DayEntry(BaseModel):
+    date: date
+    start_time: time
+    end_time: time
+    lunch_time: time
+    projects: list[DayProject] = Field(min_length=1)
 
     @model_validator(mode="after")
     def validate_time_range(self) -> "DayEntry":
