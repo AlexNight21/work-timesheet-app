@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Iterator
@@ -31,11 +32,19 @@ class WeekPeriod:
     days: tuple[date, ...]
 
 
-def build_weeks(start: date, end: date) -> list[WeekPeriod]:
-    """Разбивает рабочие дни периода по календарным неделям (пн-вс)."""
-    grouped: dict[tuple[int, int], list[date]] = {}
+def build_weeks(
+    start: date,
+    end: date,
+    extra_days: Iterable[date] = (),
+) -> list[WeekPeriod]:
+    """Разбивает рабочие и дополнительные дни периода по неделям (пн-вс)."""
+    included = set(iter_workdays(start, end))
+    for day in extra_days:
+        if start <= day <= end:
+            included.add(day)
 
-    for day in iter_workdays(start, end):
+    grouped: dict[tuple[int, int], list[date]] = {}
+    for day in sorted(included):
         iso = day.isocalendar()
         grouped.setdefault((iso.year, iso.week), []).append(day)
 
