@@ -6,7 +6,7 @@ from datetime import date, time
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.services.period import iter_workdays
+from app.services.period import iter_days, iter_workdays
 
 
 class DictionariesResponse(BaseModel):
@@ -94,8 +94,7 @@ class ReportRequest(BaseModel):
             raise ValueError("Начало периода не может быть позже окончания")
 
         workdays = set(iter_workdays(self.period_start, self.period_end))
-        if not workdays:
-            raise ValueError("В выбранном периоде нет рабочих дней")
+        allowed_days = set(iter_days(self.period_start, self.period_end))
 
         entry_dates = {entry.date for entry in self.entries}
         if len(entry_dates) != len(self.entries):
@@ -106,10 +105,10 @@ class ReportRequest(BaseModel):
             dates = ", ".join(day.strftime("%d.%m.%Y") for day in missing)
             raise ValueError(f"Не заполнены рабочие дни: {dates}")
 
-        extra = sorted(entry_dates - workdays)
+        extra = sorted(entry_dates - allowed_days)
         if extra:
             dates = ", ".join(day.strftime("%d.%m.%Y") for day in extra)
-            raise ValueError(f"Указаны дни вне периода или выходные: {dates}")
+            raise ValueError(f"Указаны дни вне периода: {dates}")
 
         return self
 

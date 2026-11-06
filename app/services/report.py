@@ -85,7 +85,14 @@ class TimesheetReportGenerator:
         reference = workbook.worksheets[REFERENCE_SHEET_INDEX]
 
         self._fill_header(timesheet, request)
-        weeks = build_weeks(request.period_start, request.period_end)
+        optional_days = [
+            entry.date for entry in request.entries if entry.date.weekday() >= 5
+        ]
+        weeks = build_weeks(
+            request.period_start,
+            request.period_end,
+            optional_days,
+        )
         entries = {entry.date: entry for entry in request.entries}
 
         templates = self._capture_timesheet_templates(timesheet)

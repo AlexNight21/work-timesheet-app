@@ -74,6 +74,7 @@ const EMPTY_DICTIONARIES = {
 
 let dictionaries = { ...EMPTY_DICTIONARIES };
 const entries = new Map();
+const weekendDays = new Set();
 
 let pendingDictionaryKind = null;
 let pendingProjectDate = null;
@@ -237,6 +238,9 @@ function formatDateShort(date) {
 function formatWeekRange(days) {
     const first = days[0];
     const last = days[days.length - 1];
+    if (toIsoDate(first) === toIsoDate(last)) {
+        return formatDateRu(first);
+    }
     if (first.getFullYear() === last.getFullYear()) {
         if (first.getMonth() === last.getMonth()) {
             return `${formatDateShort(first)}–${formatDateRu(last)}`;
@@ -246,19 +250,21 @@ function formatWeekRange(days) {
     return `${formatDateRu(first)}–${formatDateRu(last)}`;
 }
 
-function workdaysBetween(start, end) {
+function calendarDaysBetween(start, end) {
     const result = [];
     const current = new Date(start.getFullYear(), start.getMonth(), start.getDate());
     const last = new Date(end.getFullYear(), end.getMonth(), end.getDate());
 
     while (current <= last) {
-        const weekday = current.getDay();
-        if (weekday !== 0 && weekday !== 6) {
-            result.push(new Date(current));
-        }
+        result.push(new Date(current));
         current.setDate(current.getDate() + 1);
     }
     return result;
+}
+
+function isWorkdayDate(day) {
+    const weekday = day.getDay();
+    return weekday !== 0 && weekday !== 6;
 }
 
 function groupByWeek(days) {
@@ -321,9 +327,9 @@ function renderDays() {
         return;
     }
 
-    const days = workdaysBetween(start, end);
+    const days = calendarDaysBetween(start, end);
     if (days.length === 0) {
-        elements.daysEmpty.textContent = "В выбранном периоде нет рабочих дней.";
+        elements.daysEmpty.textContent = "В выбранном периоде нет дней.";
         elements.daysEmpty.hidden = false;
         return;
     }
@@ -350,12 +356,61 @@ function createWeekCard(days, index) {
     const grid = createElement("div", "day-grid");
     grid.append(createDayHeader());
 
-    for (const day of days) {
+    for (const day of days.filter(isWorkdayDate)) {
         grid.append(createDayRow(day));
     }
 
-    card.append(head, grid);
+    const saturday = days.find((day) => day.getDay() === 6) || null;
+    const sunday = days.find((day) => day.getDay() === 0) || null;
+
+    for (const weekendDay of [saturday, sunday]) {
+        if (weekendDay && weekendDays.has(toIsoDate(weekendDay))) {
+            grid.append(createDayRow(weekendDay));
+        }
+    }
+
+    const options = createElement("div", "week__weekend-options");
+    options.append(
+        createWeekendToggle("Добавить субботу", saturday),
+        createWeekendToggle("Добавить воскресенье", sunday),
+    );
+
+    card.append(head, grid, options);
     return card;
+}
+
+function createWeekendToggle(label, day) {
+    const wrapper = createElement("label", "weekend-toggle");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.className = "weekend-toggle__input";
+
+    if (day) {
+        const iso = toIsoDate(day);
+        input.checked = weekendDays.has(iso);
+        input.addEventListener("change", () => {
+            if (input.checked) {
+                weekendDays.add(iso);
+            } else {
+                weekendDays.delete(iso);
+            }
+            renderDays();
+        });
+    } else {
+        input.disabled = true;
+        wrapper.classList.add("weekend-toggle--disabled");
+        wrapper.title = "Дата вне выбранного периода";
+    }
+
+    const text = createElement("span", "weekend-toggle__text", label);
+    wrapper.append(input, text);
+
+    if (day) {
+        wrapper.append(
+            createElement("span", "weekend-toggle__date", formatDateRu(day)),
+        );
+    }
+    return wrapper;
 }
 
 function createDayHeader() {
@@ -532,17 +587,22 @@ async function generateReport() {
     }
 
     collectEntries();
-    const days = workdaysBetween(start, end);
-    if (days.length === 0) {
-        showError("В выбранном периоде нет рабочих дней.");
+    const dayRows = [...document.querySelectorAll(".day-row[data-date]")];
+    if (dayRows.length === 0) {
+        showError("В выбранном периоде нет дней для отчёта.");
         return;
     }
 
     const payloadEntries = [];
-    for (const day of days) {
-        const iso = toIsoDate(day);
+    for (const row of dayRows) {
+        const iso = row.dataset.date;
+        const day = parseIsoDate(iso);
         const entry = entries.get(iso);
 
+        if (!day) {
+            showError("Некорректная дата в форме.");
+            return;
+        }
         if (!entry || !entry.project) {
             showError(`Для ${formatDateRu(day)} не выбран проект.`);
             return;
