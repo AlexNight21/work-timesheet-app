@@ -5,7 +5,6 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 DATA_DIR = BASE_DIR / "data"
-TEMPLATE_PATH = DATA_DIR / "template" / "timesheet_template.xlsx"
 STORAGE_DIR = DATA_DIR / "storage"
 REPORTS_DIR = DATA_DIR / "reports"
 

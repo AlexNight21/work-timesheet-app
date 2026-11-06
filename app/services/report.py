@@ -1,18 +1,15 @@
-"""Генерация Excel-отчёта по шаблону."""
+"""Генерация Excel-отчёта с нуля, без файла-шаблона."""
 
 from __future__ import annotations
 
 import textwrap
-import warnings
-from copy import copy
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from pathlib import Path
 from typing import Sequence
 
-from openpyxl import load_workbook
-from openpyxl.styles import Alignment, Border, Side
-from openpyxl.styles.cell_style import StyleArray
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Color, Font, PatternFill, Side
 from openpyxl.worksheet.worksheet import Worksheet
 
 from app.models.schemas import DayEntry, ReportRequest
@@ -32,27 +29,109 @@ TABLE_HEADERS = (
     "Итого",
 )
 
-TIMESHEET_SHEET_INDEX = 0
-REFERENCE_SHEET_INDEX = 1
+# Цвета соответствуют офисной теме, использованной в образце.
+_TEXT_COLOR = Color(rgb="FF000000")
+_TITLE_COLOR = Color(rgb="FF2F5496")
+_GRID_COLOR = Color(rgb="FFBFBFBF")
+_DARK_GRID_COLOR = Color(rgb="FF7F7F7F")
+_TOTAL_COLOR = Color(rgb="FF2F5496")
 
-# Строки шаблона, с которых снимаются стили.
+_FILL_ACCENT = PatternFill(
+    fill_type="solid",
+    fgColor=Color(rgb="FFBDD7EE"),
+    bgColor=Color(indexed=64),
+)
+_FILL_WHITE = PatternFill(
+    fill_type="solid",
+    fgColor=Color(rgb="FFFFFFFF"),
+    bgColor=Color(indexed=64),
+)
+
+_FONT_TITLE = Font(
+    name="Verdana",
+    size=16,
+    underline="single",
+    color=_TITLE_COLOR,
+)
+_FONT_LABEL = Font(name="Verdana", size=9, italic=True, color=_TEXT_COLOR)
+_FONT_9 = Font(name="Verdana", size=9, color=_TEXT_COLOR)
+_FONT_9_BOLD = Font(name="Verdana", size=9, bold=True, color=_TITLE_COLOR)
+_FONT_10_BOLD = Font(name="Verdana", size=10, bold=True, color=_TITLE_COLOR)
+_FONT_8 = Font(name="Verdana", size=8, color=_TEXT_COLOR)
+_FONT_11 = Font(name="Calibri", size=11, color=_TEXT_COLOR)
+_FONT_SHEET_HEADER = Font(
+    name="Verdana",
+    size=10,
+    italic=True,
+    color=_TEXT_COLOR,
+)
+_FONT_TOTAL_H = Font(name="Verdana", size=10, bold=True, color=_TOTAL_COLOR)
+_FONT_TOTAL_I = Font(name="Calibri", size=11, color=_DARK_GRID_COLOR)
+
+_THIN = Side(style="thin", color=_GRID_COLOR)
+_THIN_DARK = Side(style="thin", color=_DARK_GRID_COLOR)
+_THIN_INDEXED = Side(style="thin", color=Color(indexed=64))
+_DOUBLE = Side(style="double", color=_GRID_COLOR)
+
+_BORDER_THIN = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
+_BORDER_BOTTOM_DARK = Border(bottom=_THIN_DARK)
+_BORDER_BOTTOM_DOUBLE = Border(bottom=_DOUBLE)
+_BORDER_WEEK_HEADER = Border(bottom=_THIN_INDEXED)
+_BORDER_BUFFER = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_DOUBLE)
+_BORDER_C_FIRST = Border(
+    left=_THIN,
+    right=_THIN,
+    top=_DOUBLE,
+    bottom=_THIN,
+)
+_BORDER_C_REST = Border(
+    left=_THIN,
+    right=_THIN,
+    top=_THIN,
+    bottom=_THIN,
+)
+
+_ALIGN_CENTER = Alignment(horizontal="center", vertical="center")
+_ALIGN_LEFT = Alignment(horizontal="left", vertical="center")
+_ALIGN_RIGHT = Alignment(horizontal="right", vertical="center")
+_ALIGN_CENTER_WRAP = Alignment(
+    horizontal="center",
+    vertical="center",
+    wrap_text=True,
+)
+_ALIGN_LEFT_WRAP = Alignment(
+    horizontal="left",
+    vertical="center",
+    wrap_text=True,
+)
+_ALIGN_VERTICAL = Alignment(vertical="center")
+_ALIGN_LEFT_ONLY = Alignment(horizontal="left")
+
+_TIMESHEET_COLUMN_WIDTHS = {
+    "A": 1.0,
+    "B": 14.0,
+    "C": 11.6640625,
+    "D": 14.5546875,
+    "E": 18.33203125,
+    "F": 13.0,
+    "G": 61.5546875,
+    "H": 15.77734375,
+    "I": 25.33203125,
+    "J": 9.109375,
+    "K": 20.44140625,
+    "L": 22.0,
+    "M": 9.109375,
+}
+_REFERENCE_COLUMN_WIDTHS = {
+    "A": 9.5546875,
+    "B": 99.88671875,
+}
+
 WEEK_HEADER_ROW = 9
-WEEK_BLANK_ROW = 10
-TABLE_HEADER_ROW = 11
-DATA_ROW = 12
-BUFFER_ROW = 16
-TOTAL_ROW = 17
-
 REFERENCE_PROJECT_HEADER_ROW = 1
 REFERENCE_PROJECT_DATA_ROW = 2
 REFERENCE_WEEK_HEADER_ROW = 12
 REFERENCE_WEEK_DATA_ROW = 13
-
-
-@dataclass(frozen=True)
-class RowTemplate:
-    styles: tuple[StyleArray, ...]
-    height: float | None
 
 
 @dataclass(frozen=True)
@@ -63,10 +142,9 @@ class GeneratedReport:
 
 
 class TimesheetReportGenerator:
-    """Заполняет шаблон и сохраняет готовый Excel-файл."""
+    """Создаёт Excel-отчёт с нуля, повторяя структуру образца."""
 
-    def __init__(self, template_path: Path, reports_dir: Path) -> None:
-        self._template_path = template_path
+    def __init__(self, reports_dir: Path) -> None:
         self._reports_dir = reports_dir
 
     def generate(
@@ -74,17 +152,15 @@ class TimesheetReportGenerator:
         request: ReportRequest,
         projects: Sequence[str] | None = None,
     ) -> GeneratedReport:
-        with warnings.catch_warnings():
-            warnings.filterwarnings(
-                "ignore",
-                message="Data Validation extension is not supported.*",
-            )
-            workbook = load_workbook(self._template_path)
+        workbook = Workbook()
+        timesheet = workbook.active
+        timesheet.title = "Лист1"
+        reference = workbook.create_sheet("Лист2")
 
-        timesheet = workbook.worksheets[TIMESHEET_SHEET_INDEX]
-        reference = workbook.worksheets[REFERENCE_SHEET_INDEX]
+        self._configure_workbook(workbook)
+        self._setup_timesheet(timesheet)
+        self._write_header(timesheet, request)
 
-        self._fill_header(timesheet, request)
         optional_days = [
             entry.date for entry in request.entries if entry.date.weekday() >= 5
         ]
@@ -94,19 +170,9 @@ class TimesheetReportGenerator:
             optional_days,
         )
         entries = {entry.date: entry for entry in request.entries}
+        total_minutes = self._write_weeks(timesheet, weeks, entries)
 
-        templates = self._capture_timesheet_templates(timesheet)
-        grid_side = copy(timesheet.cell(DATA_ROW, 2).border.left)
-        self._clear_timesheet_blocks(timesheet)
-        total_minutes = self._write_weeks(
-            timesheet,
-            weeks,
-            entries,
-            templates,
-            grid_side,
-        )
-
-        self._fill_reference_sheet(
+        self._write_reference_sheet(
             reference,
             projects if projects is not None else self._used_projects(request),
             weeks,
@@ -130,59 +196,131 @@ class TimesheetReportGenerator:
             total_minutes=total_minutes,
         )
 
-    def _fill_header(self, ws: Worksheet, request: ReportRequest) -> None:
-        ws["B2"] = request.company
-        ws["D3"] = request.employee
-        ws["D4"] = request.department
-        ws["D5"] = request.manager
-        ws["H7"] = datetime.combine(request.fill_date, time.min)
+    @staticmethod
+    def _configure_workbook(workbook: Workbook) -> None:
+        props = workbook.properties
+        props.creator = ""
+        props.lastModifiedBy = ""
+        props.title = ""
+        props.subject = ""
+        props.description = ""
+        props.keywords = ""
+        props.category = ""
 
-    def _capture_timesheet_templates(
-        self,
-        ws: Worksheet,
-    ) -> dict[str, RowTemplate]:
-        return {
-            "week_header": self._snapshot_row(ws, WEEK_HEADER_ROW),
-            "week_blank": self._snapshot_row(ws, WEEK_BLANK_ROW),
-            "table_header": self._snapshot_row(ws, TABLE_HEADER_ROW),
-            "data": self._snapshot_row(ws, DATA_ROW),
-            "buffer": self._snapshot_row(ws, BUFFER_ROW),
-            "total": self._snapshot_row(ws, TOTAL_ROW),
-        }
+    @staticmethod
+    def _setup_timesheet(ws: Worksheet) -> None:
+        for column, width in _TIMESHEET_COLUMN_WIDTHS.items():
+            ws.column_dimensions[column].width = width
+        ws.page_setup.orientation = "portrait"
+        ws.page_setup.paperSize = 9
 
-    def _clear_timesheet_blocks(self, ws: Worksheet) -> None:
-        # Сначала снимаем объединения, иначе delete_rows оставит «висячие» диапазоны.
-        for merged_range in list(ws.merged_cells.ranges):
-            if merged_range.min_row >= WEEK_HEADER_ROW:
-                ws.unmerge_cells(str(merged_range))
+    def _write_header(self, ws: Worksheet, request: ReportRequest) -> None:
+        ws.merge_cells("B1:H1")
+        self._style_cell(
+            ws["B1"],
+            value="Еженедельный табель учета рабочего времени в разрезе проектов",
+            font=_FONT_TITLE,
+            alignment=_ALIGN_CENTER,
+        )
+        ws.row_dimensions[1].height = 19.8
 
-        if ws.max_row >= WEEK_HEADER_ROW:
-            ws.delete_rows(WEEK_HEADER_ROW, ws.max_row - WEEK_HEADER_ROW + 1)
+        ws.merge_cells("B2:H2")
+        self._style_cell(
+            ws["B2"],
+            value=request.company,
+            font=_FONT_LABEL,
+            alignment=_ALIGN_CENTER,
+        )
+
+        ws.merge_cells("B3:C3")
+        self._style_cell(
+            ws["B3"],
+            value="ФИО сотрудника:",
+            font=_FONT_LABEL,
+            alignment=_ALIGN_LEFT,
+        )
+        self._style_cell(
+            ws["D3"],
+            value=request.employee,
+            font=_FONT_11,
+            fill=_FILL_ACCENT,
+            border=_BORDER_BOTTOM_DARK,
+            alignment=_ALIGN_LEFT,
+        )
+        for column in range(5, 9):
+            ws.cell(3, column).border = _BORDER_BOTTOM_DARK
+        ws.merge_cells("D3:H3")
+
+        ws.merge_cells("B4:C4")
+        self._style_cell(
+            ws["B4"],
+            value="Подразделение:",
+            font=_FONT_LABEL,
+            alignment=_ALIGN_LEFT,
+        )
+        self._style_cell(
+            ws["D4"],
+            value=request.department,
+            font=_FONT_11,
+            border=_BORDER_BOTTOM_DARK,
+            alignment=_ALIGN_LEFT,
+        )
+        for column in range(5, 9):
+            ws.cell(4, column).border = _BORDER_BOTTOM_DARK
+        ws.merge_cells("D4:H4")
+
+        ws.merge_cells("B5:C5")
+        self._style_cell(
+            ws["B5"],
+            value="Менеджер проекта:",
+            font=_FONT_LABEL,
+            alignment=_ALIGN_LEFT,
+        )
+        self._style_cell(
+            ws["D5"],
+            value=request.manager,
+            font=_FONT_11,
+            border=_BORDER_BOTTOM_DARK,
+            alignment=_ALIGN_LEFT,
+        )
+        for column in range(5, 9):
+            ws.cell(5, column).border = _BORDER_BOTTOM_DARK
+        ws.merge_cells("D5:H5")
+
+        ws.row_dimensions[4].height = 15.0
+        ws.row_dimensions[5].height = 18.75
+
+        self._style_cell(
+            ws["G7"],
+            value="Дата:",
+            font=_FONT_LABEL,
+            alignment=_ALIGN_RIGHT,
+        )
+        self._style_cell(
+            ws["H7"],
+            value=datetime.combine(request.fill_date, time.min),
+            font=_FONT_9,
+            fill=_FILL_ACCENT,
+            border=_BORDER_THIN,
+            alignment=_ALIGN_CENTER,
+            number_format="mm-dd-yy",
+        )
+        ws.row_dimensions[7].height = 18.0
 
     def _write_weeks(
         self,
         ws: Worksheet,
         weeks: list[WeekPeriod],
         entries: dict[date, DayEntry],
-        templates: dict[str, RowTemplate],
-        grid_side: Side,
     ) -> int:
-        # Недельные блоки начинаются с 9-й строки, перед ними остаётся пустая строка 8.
         header_row = WEEK_HEADER_ROW
         total_minutes = 0
 
         for index, week in enumerate(weeks):
             if index > 0:
-                header_row += 1  # пустая строка-разделитель между неделями
+                header_row += 1
 
-            total_row = self._write_week(
-                ws,
-                week,
-                entries,
-                templates,
-                header_row,
-                grid_side,
-            )
+            total_row = self._write_week(ws, week, entries, header_row)
             total_minutes += sum(
                 entries[day].worked_minutes for day in week.days
             )
@@ -195,126 +333,307 @@ class TimesheetReportGenerator:
         ws: Worksheet,
         week: WeekPeriod,
         entries: dict[date, DayEntry],
-        templates: dict[str, RowTemplate],
         header_row: int,
-        grid_side: Side,
     ) -> int:
-        self._apply_row(ws, header_row, templates["week_header"])
+        self._style_cell(
+            ws.cell(header_row - 1, 6),
+            border=_BORDER_THIN,
+        )
+
         ws.merge_cells(
             start_row=header_row,
             start_column=2,
             end_row=header_row,
             end_column=3,
         )
-        ws.cell(header_row, 2, WEEK_LABEL)
-        ws.cell(header_row, 4, datetime.combine(week.start, time.min))
-        ws.cell(header_row, 5, datetime.combine(week.end, time.min))
+        self._style_cell(
+            ws.cell(header_row, 2),
+            value=WEEK_LABEL,
+            font=_FONT_LABEL,
+            border=_BORDER_WEEK_HEADER,
+            alignment=_ALIGN_LEFT,
+        )
+        ws.cell(header_row, 3).border = _BORDER_WEEK_HEADER
+        self._style_cell(
+            ws.cell(header_row, 4),
+            value=datetime.combine(week.start, time.min),
+            font=_FONT_11,
+            fill=_FILL_ACCENT,
+            border=_BORDER_WEEK_HEADER,
+            alignment=_ALIGN_VERTICAL,
+            number_format="mm-dd-yy",
+        )
+        self._style_cell(
+            ws.cell(header_row, 5),
+            value=datetime.combine(week.end, time.min),
+            font=_FONT_11,
+            fill=_FILL_ACCENT,
+            border=_BORDER_WEEK_HEADER,
+            alignment=_ALIGN_VERTICAL,
+            number_format="mm-dd-yy",
+        )
+        self._style_cell(
+            ws.cell(header_row, 6),
+            font=_FONT_11,
+            fill=_FILL_WHITE,
+            border=_BORDER_THIN,
+            alignment=_ALIGN_VERTICAL,
+            number_format="mm-dd-yy",
+        )
 
         blank_row = header_row + 1
-        self._apply_row(ws, blank_row, templates["week_blank"])
-
-        # F8:F10 / F18:F20 в шаблоне: разделительные линии цветом
-        # основных границ таблицы, чтобы три ячейки были визуально различимы.
-        for border_row in (header_row - 1, header_row, blank_row):
-            self._set_thin_box(ws.cell(border_row, 6), grid_side)
+        self._style_cell(
+            ws.cell(blank_row, 6),
+            border=_BORDER_THIN,
+        )
 
         table_header_row = header_row + 2
-        self._apply_row(ws, table_header_row, templates["table_header"])
-        for column, title in enumerate(TABLE_HEADERS, start=2):
-            ws.cell(table_header_row, column, title)
+        for offset, title in enumerate(TABLE_HEADERS, start=2):
+            self._style_cell(
+                ws.cell(table_header_row, offset),
+                value=title,
+                font=_FONT_9_BOLD,
+                border=_BORDER_BOTTOM_DOUBLE,
+                alignment=_ALIGN_CENTER,
+            )
 
         first_data_row = table_header_row + 1
         for offset, day in enumerate(week.days):
             row = first_data_row + offset
             entry = entries[day]
-            self._apply_row(ws, row, templates["data"])
-            ws.cell(row, 2, f"=WEEKDAY(C{row})")
-            ws.cell(row, 3, datetime.combine(day, time.min))
-            if offset > 0:
-                self._set_top_border_thin(ws.cell(row, 3))
-            if offset < len(week.days) - 1:
-                self._set_bottom_border_thin(ws.cell(row, 3))
+
+            self._style_cell(
+                ws.cell(row, 2),
+                value=f"=WEEKDAY(C{row})",
+                font=_FONT_9,
+                border=_BORDER_THIN,
+                alignment=_ALIGN_CENTER,
+                number_format="ddd",
+            )
+            self._style_cell(
+                ws.cell(row, 3),
+                value=datetime.combine(day, time.min),
+                font=_FONT_9,
+                border=_BORDER_C_FIRST if offset == 0 else _BORDER_C_REST,
+                alignment=_ALIGN_CENTER,
+                number_format="mm-dd-yy",
+            )
 
             if entry.absence_reason:
                 self._write_absence_row(ws, row, entry.absence_reason)
-                continue
+            else:
+                self._style_cell(
+                    ws.cell(row, 4),
+                    value=entry.start_time,
+                    font=_FONT_9,
+                    border=_BORDER_THIN,
+                    alignment=_ALIGN_CENTER,
+                    number_format="h:mm;@",
+                )
+                self._style_cell(
+                    ws.cell(row, 5),
+                    value=entry.end_time,
+                    font=_FONT_9,
+                    border=_BORDER_THIN,
+                    alignment=_ALIGN_CENTER,
+                    number_format="h:mm;@",
+                )
+                self._style_cell(
+                    ws.cell(row, 6),
+                    value=entry.lunch_time,
+                    font=_FONT_9,
+                    border=_BORDER_THIN,
+                    alignment=_ALIGN_CENTER,
+                    number_format="h:mm;@",
+                )
+                project_text = self._project_text(entry)
+                self._style_cell(
+                    ws.cell(row, 7),
+                    value=project_text,
+                    font=_FONT_11,
+                    border=_BORDER_THIN,
+                    alignment=_ALIGN_LEFT_WRAP,
+                )
+                self._fit_project_row_height(ws, row, project_text)
+                self._style_cell(
+                    ws.cell(row, 8),
+                    value=f"=E{row}-D{row}-F{row}",
+                    font=_FONT_9,
+                    border=_BORDER_THIN,
+                    alignment=_ALIGN_CENTER,
+                    number_format="h:mm",
+                )
 
-            ws.cell(row, 4, entry.start_time)
-            ws.cell(row, 5, entry.end_time)
-            ws.cell(row, 6, entry.lunch_time)
-            project_text = self._project_text(entry)
-            ws.cell(row, 7, project_text)
-            self._fit_project_row_height(ws, row, project_text)
-            ws.cell(row, 8, f"=E{row}-D{row}-F{row}")
+            ws.row_dimensions[row].height = max(
+                ws.row_dimensions[row].height or 0,
+                15.6,
+            )
 
         buffer_row = first_data_row + len(week.days)
-        self._apply_row(ws, buffer_row, templates["buffer"])
+        for column in range(2, 9):
+            self._style_cell(
+                ws.cell(buffer_row, column),
+                font=_FONT_11 if column == 7 else _FONT_8,
+                border=_BORDER_BUFFER,
+                alignment=_ALIGN_LEFT if column == 7 else _ALIGN_VERTICAL,
+            )
+        ws.row_dimensions[buffer_row].height = 15.0
 
         total_row = buffer_row + 1
-        self._apply_row(ws, total_row, templates["total"])
-        ws.cell(total_row, 5, TOTAL_LABEL)
-        ws.cell(total_row, 8, f"=SUM(H{first_data_row}:H{buffer_row})")
+        self._style_cell(
+            ws.cell(total_row, 5),
+            value=TOTAL_LABEL,
+            font=_FONT_10_BOLD,
+            alignment=_ALIGN_RIGHT,
+        )
+        self._style_cell(
+            ws.cell(total_row, 8),
+            value=f"=SUM(H{first_data_row}:H{buffer_row})",
+            font=_FONT_TOTAL_H,
+            alignment=_ALIGN_CENTER,
+            number_format='[h]":"mm',
+        )
         week_minutes = sum(entries[day].worked_minutes for day in week.days)
-        ws.cell(total_row, 9, self._hours_label(week_minutes))
+        self._style_cell(
+            ws.cell(total_row, 9),
+            value=self._hours_label(week_minutes),
+            font=_FONT_TOTAL_I,
+            alignment=_ALIGN_CENTER,
+        )
+        ws.row_dimensions[total_row].height = 15.0
 
         return total_row
 
-    def _fill_reference_sheet(
+    def _write_absence_row(
+        self,
+        ws: Worksheet,
+        row: int,
+        reason: str,
+    ) -> None:
+        self._style_cell(
+            ws.cell(row, 4),
+            value=reason,
+            font=_FONT_9,
+            border=_BORDER_THIN,
+            alignment=_ALIGN_CENTER_WRAP,
+            number_format="h:mm;@",
+        )
+        for column in range(5, 9):
+            self._style_cell(
+                ws.cell(row, column),
+                font=_FONT_9,
+                border=_BORDER_THIN,
+                alignment=_ALIGN_CENTER,
+            )
+        ws.merge_cells(
+            start_row=row,
+            start_column=4,
+            end_row=row,
+            end_column=8,
+        )
+        merged_width = sum(
+            ws.column_dimensions[column].width or 8.43
+            for column in ("D", "E", "F", "G", "H")
+        )
+        self._fit_row_height(ws, row, reason, merged_width)
+
+    def _write_reference_sheet(
         self,
         ws: Worksheet,
         projects: Sequence[str],
         weeks: list[WeekPeriod],
     ) -> None:
-        project_header = self._snapshot_row(
-            ws,
-            REFERENCE_PROJECT_HEADER_ROW,
-            max_column=2,
-        )
-        project_data = self._snapshot_row(
-            ws,
-            REFERENCE_PROJECT_DATA_ROW,
-            max_column=2,
-        )
-        week_header = self._snapshot_row(
-            ws,
-            REFERENCE_WEEK_HEADER_ROW,
-            max_column=2,
-        )
-        week_data = self._snapshot_row(
-            ws,
-            REFERENCE_WEEK_DATA_ROW,
-            max_column=2,
-        )
+        for column, width in _REFERENCE_COLUMN_WIDTHS.items():
+            ws.column_dimensions[column].width = width
 
-        if ws.max_row > REFERENCE_PROJECT_HEADER_ROW:
-            ws.delete_rows(
-                REFERENCE_PROJECT_HEADER_ROW,
-                ws.max_row - REFERENCE_PROJECT_HEADER_ROW + 1,
-            )
-
-        self._apply_row(ws, REFERENCE_PROJECT_HEADER_ROW, project_header, 2)
-        ws.cell(REFERENCE_PROJECT_HEADER_ROW, 1, "№")
-        ws.cell(REFERENCE_PROJECT_HEADER_ROW, 2, "Проекты")
+        self._write_reference_header(ws, REFERENCE_PROJECT_HEADER_ROW, "№", "Проекты")
 
         row = REFERENCE_PROJECT_DATA_ROW
         for number, project in enumerate(projects, start=1):
-            self._apply_row(ws, row, project_data, 2)
-            ws.cell(row, 1, number)
-            ws.cell(row, 2, project)
+            self._style_cell(
+                ws.cell(row, 1),
+                value=number,
+                font=_FONT_11,
+                border=_BORDER_THIN,
+            )
+            self._style_cell(
+                ws.cell(row, 2),
+                value=project,
+                font=_FONT_11,
+                border=_BORDER_THIN,
+            )
             row += 1
 
         week_header_row = row + 1
-        self._apply_row(ws, week_header_row, week_header, 2)
-        ws.cell(week_header_row, 1, "Неделя")
-        ws.cell(week_header_row, 2, "Даты")
+        self._write_reference_header(
+            ws,
+            week_header_row,
+            "Неделя",
+            "Даты",
+        )
 
         row = week_header_row + 1
         for week in weeks:
             for day in week.days:
-                self._apply_row(ws, row, week_data, 2)
-                ws.cell(row, 1, f"{week.number} неделя")
-                ws.cell(row, 2, datetime.combine(day, time.min))
+                self._style_cell(
+                    ws.cell(row, 1),
+                    value=f"{week.number} неделя",
+                    font=_FONT_11,
+                )
+                self._style_cell(
+                    ws.cell(row, 2),
+                    value=datetime.combine(day, time.min),
+                    font=_FONT_11,
+                    alignment=_ALIGN_LEFT_ONLY,
+                    number_format="mm-dd-yy",
+                )
                 row += 1
+
+    def _write_reference_header(
+        self,
+        ws: Worksheet,
+        row: int,
+        left: str,
+        right: str,
+    ) -> None:
+        self._style_cell(
+            ws.cell(row, 1),
+            value=left,
+            font=_FONT_SHEET_HEADER,
+            fill=_FILL_ACCENT,
+            border=_BORDER_THIN,
+        )
+        self._style_cell(
+            ws.cell(row, 2),
+            value=right,
+            font=_FONT_SHEET_HEADER,
+            fill=_FILL_ACCENT,
+            border=_BORDER_THIN,
+        )
+
+    @staticmethod
+    def _style_cell(
+        cell,
+        *,
+        value=None,
+        font: Font | None = None,
+        fill: PatternFill | None = None,
+        border: Border | None = None,
+        alignment: Alignment | None = None,
+        number_format: str | None = None,
+    ) -> None:
+        if value is not None:
+            cell.value = value
+        if font is not None:
+            cell.font = font
+        if fill is not None:
+            cell.fill = fill
+        if border is not None:
+            cell.border = border
+        if alignment is not None:
+            cell.alignment = alignment
+        if number_format is not None:
+            cell.number_format = number_format
 
     @staticmethod
     def _used_projects(request: ReportRequest) -> list[str]:
@@ -354,37 +673,11 @@ class TimesheetReportGenerator:
         return f"<-{hours} {word}"
 
     @staticmethod
-    def _write_absence_row(ws: Worksheet, row: int, reason: str) -> None:
-        cell = ws.cell(row, 4, reason)
-        cell.alignment = Alignment(
-            horizontal=cell.alignment.horizontal,
-            vertical=cell.alignment.vertical,
-            wrap_text=True,
-        )
-        ws.merge_cells(
-            start_row=row,
-            start_column=4,
-            end_row=row,
-            end_column=8,
-        )
-        merged_width = sum(
-            ws.column_dimensions[column].width or 8.43
-            for column in ("D", "E", "F", "G", "H")
-        )
-        TimesheetReportGenerator._fit_row_height(
-            ws,
-            row,
-            reason,
-            merged_width,
-        )
-
-    @staticmethod
     def _fit_project_row_height(
         ws: Worksheet,
         row: int,
         text: str,
     ) -> None:
-        """Увеличивает высоту строки, чтобы текст в колонке G был виден полностью."""
         column_width = ws.column_dimensions["G"].width or 61.55
         TimesheetReportGenerator._fit_row_height(
             ws,
@@ -411,63 +704,3 @@ class TimesheetReportGenerator:
 
         base_height = ws.row_dimensions[row].height or 15.6
         ws.row_dimensions[row].height = min(base_height * lines, 409.5)
-
-    @staticmethod
-    def _set_top_border_thin(cell) -> None:
-        border = cell.border
-        cell.border = Border(
-            left=border.left,
-            right=border.right,
-            top=Side(style="thin", color=border.top.color),
-            bottom=border.bottom,
-        )
-
-    @staticmethod
-    def _set_bottom_border_thin(cell) -> None:
-        border = cell.border
-        cell.border = Border(
-            left=border.left,
-            right=border.right,
-            top=border.top,
-            bottom=Side(style="thin", color=border.bottom.color),
-        )
-
-    @staticmethod
-    def _set_thin_box(cell, source_side: Side) -> None:
-        thin_side = Side(style="thin", color=copy(source_side.color))
-        cell.border = Border(
-            left=copy(thin_side),
-            right=copy(thin_side),
-            top=copy(thin_side),
-            bottom=copy(thin_side),
-        )
-
-    @staticmethod
-    def _snapshot_row(
-        ws: Worksheet,
-        row: int,
-        max_column: int = 9,
-    ) -> RowTemplate:
-        styles = tuple(
-            copy(ws.cell(row=row, column=column)._style)
-            for column in range(1, max_column + 1)
-        )
-        return RowTemplate(
-            styles=styles,
-            height=ws.row_dimensions[row].height,
-        )
-
-    @staticmethod
-    def _apply_row(
-        ws: Worksheet,
-        row: int,
-        template: RowTemplate,
-        max_column: int | None = None,
-    ) -> None:
-        columns = max_column or len(template.styles)
-        for column in range(1, columns + 1):
-            ws.cell(row=row, column=column)._style = copy(
-                template.styles[column - 1]
-            )
-        if template.height is not None:
-            ws.row_dimensions[row].height = template.height

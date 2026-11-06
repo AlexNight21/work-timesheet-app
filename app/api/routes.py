@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 
-from app.config import DICTIONARY_LABELS, REPORTS_DIR, TEMPLATE_PATH
+from app.config import DICTIONARY_LABELS, REPORTS_DIR
 from app.models.schemas import (
     DictionaryCreateRequest,
     DictionaryCreateResponse,
@@ -66,18 +66,8 @@ def create_report(
     payload: ReportRequest,
     repository: DictionaryRepository = Depends(get_repository),
 ) -> dict[str, object]:
-    generator = TimesheetReportGenerator(
-        template_path=TEMPLATE_PATH,
-        reports_dir=REPORTS_DIR,
-    )
-
-    try:
-        result = generator.generate(payload, repository.get("projects"))
-    except FileNotFoundError as exc:
-        raise HTTPException(
-            status_code=500,
-            detail="Не найден шаблон Excel-отчёта",
-        ) from exc
+    generator = TimesheetReportGenerator(reports_dir=REPORTS_DIR)
+    result = generator.generate(payload, repository.get("projects"))
 
     return {
         "filename": result.filename,
