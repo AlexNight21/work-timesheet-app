@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Sequence
 
 from openpyxl import load_workbook
-from openpyxl.styles import Border, Side
+from openpyxl.styles import Alignment, Border, Side
 from openpyxl.styles.cell_style import StyleArray
 from openpyxl.worksheet.worksheet import Worksheet
 
@@ -234,6 +234,11 @@ class TimesheetReportGenerator:
                 self._set_top_border_thin(ws.cell(row, 3))
             if offset < len(week.days) - 1:
                 self._set_bottom_border_thin(ws.cell(row, 3))
+
+            if entry.absence_reason:
+                self._write_absence_row(ws, row, entry.absence_reason)
+                continue
+
             ws.cell(row, 4, entry.start_time)
             ws.cell(row, 5, entry.end_time)
             ws.cell(row, 6, entry.lunch_time)
@@ -349,6 +354,31 @@ class TimesheetReportGenerator:
         return f"<-{hours} {word}"
 
     @staticmethod
+    def _write_absence_row(ws: Worksheet, row: int, reason: str) -> None:
+        cell = ws.cell(row, 4, reason)
+        cell.alignment = Alignment(
+            horizontal=cell.alignment.horizontal,
+            vertical=cell.alignment.vertical,
+            wrap_text=True,
+        )
+        ws.merge_cells(
+            start_row=row,
+            start_column=4,
+            end_row=row,
+            end_column=8,
+        )
+        merged_width = sum(
+            ws.column_dimensions[column].width or 8.43
+            for column in ("D", "E", "F", "G", "H")
+        )
+        TimesheetReportGenerator._fit_row_height(
+            ws,
+            row,
+            reason,
+            merged_width,
+        )
+
+    @staticmethod
     def _fit_project_row_height(
         ws: Worksheet,
         row: int,
@@ -356,6 +386,20 @@ class TimesheetReportGenerator:
     ) -> None:
         """Увеличивает высоту строки, чтобы текст в колонке G был виден полностью."""
         column_width = ws.column_dimensions["G"].width or 61.55
+        TimesheetReportGenerator._fit_row_height(
+            ws,
+            row,
+            text,
+            column_width,
+        )
+
+    @staticmethod
+    def _fit_row_height(
+        ws: Worksheet,
+        row: int,
+        text: str,
+        column_width: float,
+    ) -> None:
         chars_per_line = max(10, int(column_width) - 2)
         lines = 0
         for paragraph in text.splitlines() or [""]:

@@ -167,6 +167,31 @@
         </form>
     </dialog>
 
+    <dialog class="dialog" id="absence-dialog">
+        <form class="dialog__form" id="absence-form">
+            <h3 id="absence-dialog-title">Отсутствие на работе</h3>
+            <p class="muted" id="absence-dialog-subtitle"></p>
+            <label class="field">
+                <span class="field__label">Причина отсутствия</span>
+                <select id="absence-reason"></select>
+            </label>
+            <label class="field" id="absence-custom-field" hidden>
+                <span class="field__label">Своя причина</span>
+                <input type="text" id="absence-custom-reason" maxlength="300"
+                       placeholder="Укажите причину отсутствия">
+            </label>
+            <div class="alert alert--error" id="absence-error" hidden></div>
+            <div class="dialog__actions">
+                <button type="button" class="button button--ghost" id="absence-cancel">
+                    Отмена
+                </button>
+                <button type="submit" class="button button--primary" id="absence-save">
+                    Сохранить
+                </button>
+            </div>
+        </form>
+    </dialog>
+
     <script src="/static/js/app.js"></script>
 </body>
 </html>
