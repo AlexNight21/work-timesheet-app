@@ -72,6 +72,26 @@ const projectsDialog = {
     save: document.getElementById("projects-save"),
 };
 
+const absenceDialog = {
+    root: document.getElementById("absence-dialog"),
+    form: document.getElementById("absence-form"),
+    subtitle: document.getElementById("absence-dialog-subtitle"),
+    reason: document.getElementById("absence-reason"),
+    customField: document.getElementById("absence-custom-field"),
+    customReason: document.getElementById("absence-custom-reason"),
+    error: document.getElementById("absence-error"),
+    cancel: document.getElementById("absence-cancel"),
+    save: document.getElementById("absence-save"),
+};
+
+const ABSENCE_REASONS = [
+    "Плановый отпуск",
+    "Отпуск за свой счет",
+    "Больничный",
+    "Праздничный день",
+];
+const ABSENCE_OTHER = "Другое";
+
 const WEEKDAY_NAMES = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
 
 const EMPTY_DICTIONARIES = {
@@ -89,6 +109,7 @@ const weekendDays = new Set();
 let pendingDictionaryKind = null;
 let pendingProjectSelect = null;
 let activeProjectDate = null;
+let activeAbsenceDate = null;
 
 function createElement(tag, className, text) {
     const element = document.createElement(tag);
@@ -435,6 +456,7 @@ function createDayHeader() {
         "Окончание",
         "Обед",
         "Проект",
+        "Не работал",
     ];
     for (const label of labels) {
         row.append(createElement("span", "", label));
@@ -445,8 +467,12 @@ function createDayHeader() {
 function createDayRow(day) {
     const iso = toIsoDate(day);
     const saved = entries.get(iso) || {};
+    const isAbsent = Boolean(saved.absenceReason);
     const row = createElement("div", "day-row");
     row.dataset.date = iso;
+    if (isAbsent) {
+        row.classList.add("day-row--absence");
+    }
 
     const name = createElement("div", "day-name", WEEKDAY_NAMES[day.getDay()]);
     const date = createElement("div", "day-date", formatDateRu(day));
@@ -454,10 +480,12 @@ function createDayRow(day) {
     const startSelect = createElement("select", "start-select");
     startSelect.title = "Время начала работ";
     fillTimeSelect(startSelect, saved.start, elements.defaultStart.value);
+    startSelect.disabled = isAbsent;
 
     const endSelect = createElement("select", "end-select");
     endSelect.title = "Время окончания работ";
     fillTimeSelect(endSelect, saved.end, elements.defaultEnd.value);
+    endSelect.disabled = isAbsent;
 
     const lunchSelect = createElement("select", "lunch-select");
     lunchSelect.title = "Время обеда";
@@ -466,13 +494,19 @@ function createDayRow(day) {
         lunchSelect.append(new Option(value, value));
     }
     lunchSelect.value = saved.lunch || "01:00";
+    lunchSelect.disabled = isAbsent;
 
     const projectCell = createElement("div", "project-cell");
     const projectSummary = createElement(
         "span",
         "project-summary",
-        formatProjectSummary(saved.projects || []),
+        isAbsent
+            ? `Не работал: ${saved.absenceReason}`
+            : formatProjectSummary(saved.projects || []),
     );
+    if (isAbsent) {
+        projectSummary.classList.add("project-summary--absence");
+    }
     const editProjectsButton = createElement(
         "button",
         "icon-button open-projects-button",
@@ -480,10 +514,24 @@ function createDayRow(day) {
     );
     editProjectsButton.type = "button";
     editProjectsButton.title = "Выбрать проекты и проведенные работы";
+    editProjectsButton.disabled = isAbsent;
     editProjectsButton.addEventListener("click", () => {
         openProjectsDialog(iso);
     });
     projectCell.append(projectSummary, editProjectsButton);
+
+    const absenceCell = createElement("label", "absence-cell");
+    const absenceCheckbox = document.createElement("input");
+    absenceCheckbox.type = "checkbox";
+    absenceCheckbox.className = "absence-checkbox";
+    absenceCheckbox.checked = isAbsent;
+    absenceCheckbox.addEventListener("change", () => {
+        handleAbsenceToggle(iso, absenceCheckbox);
+    });
+    absenceCell.append(
+        absenceCheckbox,
+        createElement("span", "absence-cell__label", "Не работал"),
+    );
 
     row.append(
         name,
@@ -492,6 +540,7 @@ function createDayRow(day) {
         endSelect,
         lunchSelect,
         projectCell,
+        absenceCell,
     );
     return row;
 }
@@ -634,6 +683,102 @@ function saveProjectsDialog(event) {
     renderDays();
 }
 
+function fillAbsenceReasons() {
+    absenceDialog.reason.replaceChildren(
+        new Option("— выберите причину —", ""),
+    );
+    for (const reason of ABSENCE_REASONS) {
+        absenceDialog.reason.append(new Option(reason, reason));
+    }
+    absenceDialog.reason.append(new Option(ABSENCE_OTHER, ABSENCE_OTHER));
+}
+
+function handleAbsenceToggle(iso, checkbox) {
+    if (checkbox.checked) {
+        openAbsenceDialog(iso);
+        return;
+    }
+    const entry = entries.get(iso) || {};
+    delete entry.absenceReason;
+    entries.set(iso, entry);
+    renderDays();
+}
+
+function openAbsenceDialog(iso) {
+    collectEntries();
+    const entry = entries.get(iso) || {};
+    activeAbsenceDate = iso;
+    const reason = entry.absenceReason || "";
+
+    if (ABSENCE_REASONS.includes(reason)) {
+        absenceDialog.reason.value = reason;
+        absenceDialog.customReason.value = "";
+        absenceDialog.customField.hidden = true;
+    } else if (reason) {
+        absenceDialog.reason.value = ABSENCE_OTHER;
+        absenceDialog.customReason.value = reason;
+        absenceDialog.customField.hidden = false;
+    } else {
+        absenceDialog.reason.value = "";
+        absenceDialog.customReason.value = "";
+        absenceDialog.customField.hidden = true;
+    }
+
+    const day = parseIsoDate(iso);
+    absenceDialog.subtitle.textContent = day
+        ? `День: ${formatDateRu(day)}`
+        : "";
+    clearAbsenceDialogError();
+    absenceDialog.root.showModal();
+    absenceDialog.reason.focus();
+}
+
+function updateAbsenceCustomField() {
+    const isOther = absenceDialog.reason.value === ABSENCE_OTHER;
+    absenceDialog.customField.hidden = !isOther;
+    if (isOther) {
+        absenceDialog.customReason.focus();
+    }
+}
+
+function showAbsenceDialogError(message) {
+    absenceDialog.error.textContent = message;
+    absenceDialog.error.hidden = false;
+}
+
+function clearAbsenceDialogError() {
+    absenceDialog.error.textContent = "";
+    absenceDialog.error.hidden = true;
+}
+
+function saveAbsenceDialog(event) {
+    event.preventDefault();
+    clearAbsenceDialogError();
+
+    const selected = absenceDialog.reason.value;
+    if (!selected) {
+        showAbsenceDialogError("Выберите причину отсутствия.");
+        return;
+    }
+
+    let reason = selected;
+    if (selected === ABSENCE_OTHER) {
+        reason = absenceDialog.customReason.value.trim();
+        if (!reason) {
+            showAbsenceDialogError("Укажите свою причину отсутствия.");
+            return;
+        }
+    }
+
+    if (!activeAbsenceDate) {
+        return;
+    }
+
+    const current = entries.get(activeAbsenceDate) || {};
+    entries.set(activeAbsenceDate, { ...current, absenceReason: reason });
+    absenceDialog.root.close();
+}
+
 function openDictionaryDialog(kind, projectSelect = null) {
     const meta = KIND_META[kind];
     if (!meta) {
@@ -747,6 +892,17 @@ async function generateReport() {
             showError("Некорректная дата в форме.");
             return;
         }
+        if (entry && entry.absenceReason) {
+            payloadEntries.push({
+                date: iso,
+                start_time: null,
+                end_time: null,
+                lunch_time: null,
+                projects: [],
+                absence_reason: entry.absenceReason,
+            });
+            continue;
+        }
         if (!entry || !entry.projects || entry.projects.length === 0) {
             showError(`Для ${formatDateRu(day)} не выбраны проекты.`);
             return;
@@ -788,6 +944,7 @@ async function generateReport() {
                 project: item.project,
                 details: item.details || null,
             })),
+            absence_reason: null,
         });
     }
 
@@ -903,6 +1060,28 @@ function bindEvents() {
         activeProjectDate = null;
         clearProjectsDialogError();
     });
+
+    absenceDialog.form.addEventListener("submit", saveAbsenceDialog);
+
+    absenceDialog.cancel.addEventListener("click", () => {
+        absenceDialog.root.close();
+    });
+
+    absenceDialog.reason.addEventListener("change", () => {
+        clearAbsenceDialogError();
+        updateAbsenceCustomField();
+    });
+
+    absenceDialog.customReason.addEventListener(
+        "input",
+        clearAbsenceDialogError,
+    );
+
+    absenceDialog.root.addEventListener("close", () => {
+        activeAbsenceDate = null;
+        clearAbsenceDialogError();
+        renderDays();
+    });
 }
 
 async function init() {
@@ -910,6 +1089,7 @@ async function init() {
     setDefaultDates();
     fillTimeSelect(elements.defaultStart, "08:00", "08:00");
     fillTimeSelect(elements.defaultEnd, "17:00", "17:00");
+    fillAbsenceReasons();
     try {
         await loadDictionaries();
     } catch (error) {

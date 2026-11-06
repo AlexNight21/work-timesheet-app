@@ -57,13 +57,42 @@ class DayProject(BaseModel):
 
 class DayEntry(BaseModel):
     date: date
-    start_time: time
-    end_time: time
-    lunch_time: time
-    projects: list[DayProject] = Field(min_length=1)
+    start_time: time | None = None
+    end_time: time | None = None
+    lunch_time: time | None = None
+    projects: list[DayProject] = Field(default_factory=list)
+    absence_reason: str | None = Field(default=None, max_length=300)
+
+    @field_validator("absence_reason")
+    @classmethod
+    def normalize_absence_reason(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
 
     @model_validator(mode="after")
-    def validate_time_range(self) -> "DayEntry":
+    def validate_day(self) -> "DayEntry":
+        if self.absence_reason:
+            if self.projects:
+                raise ValueError(
+                    "Для дня отсутствия проекты не указываются"
+                )
+            return self
+
+        if not self.projects:
+            raise ValueError(
+                "Укажите хотя бы один проект или причину отсутствия"
+            )
+        if (
+            self.start_time is None
+            or self.end_time is None
+            or self.lunch_time is None
+        ):
+            raise ValueError(
+                "Для рабочего дня укажите время начала, окончания и обеда"
+            )
+
         start = self.start_time.hour * 60 + self.start_time.minute
         end = self.end_time.hour * 60 + self.end_time.minute
         lunch = self.lunch_time.hour * 60 + self.lunch_time.minute
@@ -76,6 +105,14 @@ class DayEntry(BaseModel):
 
     @property
     def worked_minutes(self) -> int:
+        if (
+            self.absence_reason
+            or self.start_time is None
+            or self.end_time is None
+            or self.lunch_time is None
+        ):
+            return 0
+
         start = self.start_time.hour * 60 + self.start_time.minute
         end = self.end_time.hour * 60 + self.end_time.minute
         lunch = self.lunch_time.hour * 60 + self.lunch_time.minute

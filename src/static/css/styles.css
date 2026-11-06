@@ -21,6 +21,10 @@
     box-sizing: border-box;
 }
 
+[hidden] {
+    display: none !important;
+}
+
 html {
     color-scheme: light;
 }
@@ -363,7 +367,7 @@ input:disabled {
 
 .day-row {
     display: grid;
-    grid-template-columns: 58px 104px 108px 116px 104px minmax(280px, 1fr);
+    grid-template-columns: 58px 104px 108px 116px 104px minmax(240px, 1fr) 112px;
     gap: 10px;
     align-items: center;
     padding: 10px 16px;
@@ -425,6 +429,39 @@ input:disabled {
     width: 36px;
     min-height: 36px;
     font-size: 18px;
+}
+
+.absence-cell {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-muted);
+    font-size: 12px;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+}
+
+.absence-checkbox {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--danger);
+    cursor: pointer;
+}
+
+.day-row--absence {
+    background: #fff8f7;
+}
+
+.project-summary--absence {
+    color: var(--danger);
+    font-weight: 600;
+}
+
+.icon-button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
 }
 
 .dialog.dialog--projects {
@@ -560,7 +597,7 @@ input:disabled {
 
     .day-row,
     .day-row--header {
-        grid-template-columns: 54px 96px 1fr 1fr;
+        grid-template-columns: 54px 96px 1fr 1fr auto;
     }
 
     .day-row--header span:nth-child(n + 5) {
@@ -569,8 +606,8 @@ input:disabled {
 
     .day-row {
         grid-template-areas:
-            "name date start end"
-            "lunch project project project";
+            "name date start end absence"
+            "lunch project project project project";
     }
 
     .day-row > .day-name {
@@ -595,6 +632,10 @@ input:disabled {
 
     .day-row > .project-cell {
         grid-area: project;
+    }
+
+    .day-row > .absence-cell {
+        grid-area: absence;
     }
 }
 
@@ -647,7 +688,8 @@ input:disabled {
             "name date"
             "start end"
             "lunch lunch"
-            "project project";
+            "project project"
+            "absence absence";
     }
 
     .day-row--header {
